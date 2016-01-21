@@ -1,0 +1,178 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Jsbridgedemo by chowxiaojun</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/github-light.css">
+    <meta name="viewport" content="width=device-width">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>Jsbridgedemo</h1>
+        <p></p>
+
+        <p class="view"><a href="https://github.com/chowxiaojun/jsbridgeDemo">View the Project on GitHub <small>chowxiaojun/jsbridgeDemo</small></a></p>
+
+
+        <ul>
+          <li><a href="https://github.com/chowxiaojun/jsbridgeDemo/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/chowxiaojun/jsbridgeDemo/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/chowxiaojun/jsbridgeDemo">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <h3>
+<a id="0x00-背景" class="anchor" href="#0x00-%E8%83%8C%E6%99%AF" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>0x00 背景</h3>
+
+<p>近年来，由于开发成本，开发效率，用户需求等原因，对于移动App的开发方案已经从原生开发趋向于<strong>混合(Hybrid)开发</strong>的方式，甚至于说直接基于一些大的App平台提供的JS SDK直接开发Web页面，例如<a href="https://mp.weixin.qq.com/wiki/7/aaa137b55fb2e0456bf8dd9148dd613f.html">微信</a>、<a href="http://open.mobile.qq.com/news/guide">手机QQ</a>等超级App。最近，就在我写这篇文章的时候，在微信公开课Pro活动上，张小龙提出了微信关于“应用号”的规划，具体请看这篇文章<a href="http://www.ifanr.com/607406">预埋两年的线索，传说会干掉 App 的微信应用号是什么？</a>，可见混合开发这种开发方式的重要性。</p>
+
+<p>基于混合开发方式的优势是非常明显的：它既能使用原生的一些手机特性，而且又拥有随时发布的能力。前者是通过提供相关JS API使Web页面具有一些原生的功能，而后者是Web页面天生具有的特性。也就是说：我们在开发原生应用的基础上嵌入<a href="http://developer.android.com/reference/android/webkit/WebView.html">WebView</a>，但是整体的架构使用原生应用提供。关于这种开发方式，如果你想要更进一步了解，请参考这篇<a href="http://www.infoq.com/cn/articles/hybrid-app-development-combat">《Hybrid App开发实战》</a>。</p>
+
+<p>而本文的目的就是想要知道这些JS API是怎么提供的，或者更直白一点：Android中Java与JavaScript是怎么交互/通信的？你要知道JavaScript是运行在浏览器环境下的脚本语言。当然，网上关于这方面的资料非常多，但是我这里还是想总结与实践一下，因为之前的项目需求开发接触Hybrid开发这种方式，在Android上写了一些JS API，后来又接触了前端开发，开始使用这些<a href="http://iot.open.qq.com/wiki/index.html#!APP/deviceAPI.md">JS API</a>，所以很想了解一下相关原理。</p>
+
+<h3>
+<a id="0x01-两类交互方式" class="anchor" href="#0x01-%E4%B8%A4%E7%B1%BB%E4%BA%A4%E4%BA%92%E6%96%B9%E5%BC%8F" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>0x01 两类交互方式</h3>
+
+<p>在进入主题之前，还需要提到一点：本文主要是涉及JavaScript如何调用Java？而反过来，Java调用JavaScript因为比较简单一点，我这里稍微提下，直接上代码：</p>
+
+<pre><code>String url = "javascript:" + methodName + "(" + jsonParams + ");void(0);"
+webView.loadUrl(url);
+</code></pre>
+
+<p>就是这么简单，直接调用WebView的<code>loadUrl(url)</code>方法，当然参数url是比较特殊，前面的<code>javascript:</code>伪协议让我们可以通过一个链接来调用JavaScript函数，中间<strong>methodName</strong>是JavaScript中实现的函数，<strong>jsonParams</strong>是传入的参数。关于后面的<code>void(0);</code>，可以参考这篇文档<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/void">《void operator》</a>中的说明。Java调用JavaScript的方式就说到这里，下面我们继续讨论JavaScript是如何调用Java的，实现的方法有很多种，我把它归为两类：
+1. Android WebView api本身就支持的方式<code>addJavascriptInterface</code>；
+2. 通过伪协议拦截页面的“请求”，即需要JavaScript与Java端(native)事先约定，我们称这种叫做<strong>JsBridge</strong>，；方法有<code>shouldOverrideUrlLoading</code>、<code>window.prompt</code>、<code>Console.log</code>和<code>alert</code>等。</p>
+
+<h4>
+<a id="addjavascriptinterface" class="anchor" href="#addjavascriptinterface" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>addJavascriptInterface</h4>
+
+<p>首先，我们来看第一类<code>addJavascriptInterface</code>，其方法声明如下所示：</p>
+
+<pre><code>public void addJavascriptInterface(Object object, String name)
+</code></pre>
+
+<p>该方法将参数中提供的Java对象(object)注入到WebView中。该对象会被注入到页面主框架(main <a href="http://www.w3.org/TR/html401/present/frames.html">frame</a>)的Javascript上下文中，通过参数中提供的名称(name)访问。具体的使用方式，Android官方文档有给出：</p>
+
+<pre><code>class JsObject {
+    @JavascriptInterface
+    public String toString() {
+        return "injectedObject";    
+    }
+}
+webView.addJavascriptInterface(new JsObject(), "injectedObject"); // 只有页面再加载，该对象才可见
+webView.loadData("", "text/html", null);
+webView.loadUrl("javascript:alert(injectedObject.toString())"); 
+</code></pre>
+
+<p>这个例子大家一看就很明了，<code>addJavascriptInterface</code>这种方式非常简单好用。但是这种方式在Android 4.2之前的版本中存在安全问题：在4.2之前被注入的对象的所有公共方法(包括从父类继承过来的方法)都可以被访问到；在4.2以后，只有通过<a href="http://developer.android.com/reference/android/webkit/JavascriptInterface.html">@JavascriptInterface</a>注解的公共方法才能被访问。具体请看这篇<a href="http://drops.wooyun.org/papers/548">WebView中接口隐患与手机挂马利用</a>
+除此之外，对于该方法还需要注意的是：</p>
+
+<ul>
+<li>在该方式下，JavaScript调用Java通过WebView的一个私有后台线程，所以，需要我们需要注意线程安全；</li>
+<li>Java对象的域是不可访问的；</li>
+<li>在Android 5.0及以上，被注入对象的方法可被JavaScript枚举。</li>
+</ul>
+
+<p>下面，我们来看第二类方法，这类方法的特点是：JS端与Native端存在一个伪协议，Native端口根据这个协议去侦听/截获页面的相关行为。所以，我们首先需要定义一个协议（可参考上面的<code>javascript:</code>伪协议）：<code>协议名+方法名+相关参数</code>。在本文中，我们假定该协议格式为：<code>"jsbridge://" + "method" + "jsonParams"</code>，整个协议就是个特殊的字符串。之后我们要做的工作是把这个字符串从JS端传到Native端，然后Native去解析这个字符串并执行相关代码。这其中的关键就是如何传这个字符串，方法有很多，我们一个一个来看：</p>
+
+<h4>
+<a id="shouldoverrideurlloading" class="anchor" href="#shouldoverrideurlloading" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>shouldOverrideUrlLoading</h4>
+
+<p><code>shouldOverrideUrlLoading</code>是类<a href="http://developer.android.com/reference/android/webkit/WebViewClient.html">WebViewClient</a>中的一个方法。它的作用是控制当前Webview加载新url的相关行为。在默认情况下，Webview没有设置WebViewClient，所以它会请求Activity Manager来处理该url(一般就是调用相关浏览器应用)。该方法的方法声明如下：</p>
+
+<pre><code>public boolean shouldOverrideUrlLoading(Webview view, String url)
+</code></pre>
+
+<p>从方法声明可知，我们将通过参数<code>String url</code>来传递我们协议字符串，所以在Native端我们创建设置WebViewClient子类，该子类覆写<code>shouldOverrideUrlLoading</code>方法，这个就可以拦截Webview加载新url了。那么在JS端该如何生成这个url呢？一般我们可以创建一个iframe，设置它的src属性，并将其添加到页面的文档流中，或者直接设置<code>window.location.href</code>。相关代码如下：</p>
+
+<pre><code>// 方式(1) 直接设置window.location.href
+window.location.href = "jsbridge://toast?{msg:jstojava}";
+// 方式(2) 在需要js调用native api的时候,js在页面中创建一个不可见的iframe,设置这个iframe的地址
+var iframe = document.createElement("iframe");
+iframe.style.display = "none";
+document.documentElement.appendChild(iframe);
+iframe.src = "jsbridge://toast?{msg:jstojava}";
+</code></pre>
+
+<h4>
+<a id="promptconsolelogalert" class="anchor" href="#promptconsolelogalert" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>prompt，console.log，alert</h4>
+
+<p>这部分我们要讲的三个方法(原理同上)，都是浏览器实现的API接口：
+1. <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/prompt">prompt</a>：默认显示一个对话框，对话框中包含一条文字信息，用来提示用户输入文字；
+2. <a href="https://developer.mozilla.org/zh-CN/docs/Web/API/Console/log">console.log</a>：默认向web控制台输出一条消息；
+3. <a href="http://www.w3school.com.cn/jsref/met_win_alert.asp">alert</a>：默认用于显示带有一条指定消息和一个 OK 按钮的警告框。</p>
+
+<p>对于上述三个方法的默认行为，大家可通过chrome的开发者工具试试，调用方式非常简单。所以，我们只要能拦截这三个方法的默认行为并获得其中的参数即可。而Android中的类<a href="http://developer.android.com/reference/android/webkit/WebChromeClient.html">WebChromeClient</a>确实存在相对应的方法来处理，只要覆写WebChromeClient中相对应的三个方法，并设置Webview。下面是这三个方法的方法声明，要注意的是这三个方法的参数差异是有点大，具体使用那个参数可能需要与JS端配合：</p>
+
+<pre><code>class WebChromeClientImp extends WebChromeClient {
+    @Override
+    public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
+    }
+
+    @Override
+    public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
+    }
+
+    @Override
+    public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+    }
+}
+</code></pre>
+
+<h3>
+<a id="0x02-相关代码实现" class="anchor" href="#0x02-%E7%9B%B8%E5%85%B3%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>0x02 相关代码实现</h3>
+
+<p>在上面一节主要介绍了JS与Java互相调用的方法，在这一节主要是如何这些方法。虽然以上这些还是很简单的，但写个demo实践一下还是必要的。这个demo已上传至github，有兴趣的同学，请点这里<a href="https://github.com/chowxiaojun/jsbridgeDemo">jsbridgeDemo</a>。这个demo的功能如下：
+1. 利用上述的两种方式实现JS调用Native端的toast功能；
+2. Native端调用JS端的方法实现修改页面背景色的功能。</p>
+
+<p>在这个demo实现比较简单，我这里就稍微说明几点：</p>
+
+<p>第一，这个demo项目需要一个页面来承载，这个页面可以发布在外网上或者它就写在本地项目中。本文使用了后面这种方式，因为比较方便，具体操作方式是：在Android项目的根目录下创建<code>assets</code>目录(如果该目录不存在的话)，并创建页面<code>jsdemo.html</code>在该目录下，代码中加载页面的方式为<code>webView.loadUrl("file:///android_asset/jsdemo.html")</code>；</p>
+
+<p>第二，JS端调用<code>prompt()</code>与<code>alert()</code>后，Native端必须给JS端回调确认，否则会有问题，因为两者都是会弹框，需要给响应：</p>
+
+<pre><code>result.confirm();
+</code></pre>
+
+<p>第三，在Native代码需要设置webview启用JavaScript：</p>
+
+<pre><code>WebSettings webSettings = webView.getSettings();
+webSettings.setJavaScriptEnabled(true);
+</code></pre>
+
+<p>第四，目前实现只是对伪协议做了字符串比较，最好的方式当然是在JS和Native端各自封装相对模块来处理相关逻辑，后续有时间我会做下修改。</p>
+
+<h3>
+<a id="0x03-总结" class="anchor" href="#0x03-%E6%80%BB%E7%BB%93" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>0x03 总结</h3>
+
+<p>本文主要介绍了Java与JavaScript相互调用的方式，特别是JavaScript调用Java的几种方法：当然，Android原生提供的方式由于安全的问题是不被推荐的，但是随着Android 4.2及之后版本的普及，这未必不是一种好的方式；关于其他几种方法应该都是可以使用的，但都需要自己做一定封装；还有就是这几种方法的相关调用性能估计是不一样，大家在选择的时候需要做下对比，本文暂时没有涉及到。</p>
+
+<h3>
+<a id="0x04-引用" class="anchor" href="#0x04-%E5%BC%95%E7%94%A8" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>0x04 引用</h3>
+
+<ol>
+<li><a href="http://www.pedant.cn/2014/07/04/webview-js-java-interface-research/">在WebView中如何让JS与Java安全地互相调用</a></li>
+<li><a href="http://developer.android.com/guide/webapps/webview.html">android webview</a></li>
+<li><a href="http://stackoverflow.com/questions/5749569/load-local-html-file-into-webview">Load local HTML file into WebView</a></li>
+<li><a href="http://www.xkjchen.com/Android-WebViewBridge/">WebView中实现js与java互相调用</a></li>
+<li><a href="http://developer.android.com/intl/zh-cn/guide/webapps/webview.html">Building Web Apps in WebView</a></li>
+<li><a href="http://blog.aaapei.com/article/2013/12/wei-xin-de-jsbridgeshi-xian">微信的jsbridge实现</a></li>
+</ol>
+      </section>
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/chowxiaojun">chowxiaojun</a></p>
+        <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+      </footer>
+    </div>
+    <script src="javascripts/scale.fix.js"></script>
+    
+  </body>
+</html>
