@@ -6,6 +6,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.JsPromptResult;
@@ -14,6 +15,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.Toast;
 
 public class MainActivity extends AppCompatActivity {
@@ -25,6 +27,13 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
+        Button mButton = (Button) findViewById(R.id.button);
+        mButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                loadUrl("javascript:javaCallJs()");
+            }
+        });
         webView = (WebView) findViewById(R.id.webview);
         webView.addJavascriptInterface(new WebAppInterface(getApplicationContext()), "Android");
         webView.setWebViewClient(new WebViewClientImp());
@@ -34,12 +43,12 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl("file:///android_asset/jsdemo.html");
     }
 
-    void javaCallJs() {
+    void loadUrl(final String url) {
         if (webView != null) {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    webView.loadUrl("javascript:javaCallJs()");
+                    webView.loadUrl(url);
                 }
             });
         }
@@ -73,7 +82,6 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, String url) {
             if (url != null && url.contains("jsbridge://")) {
-                javaCallJs();
                 showToast(url);
                 return true;
             }
